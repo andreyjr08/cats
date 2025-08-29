@@ -1,39 +1,84 @@
-import 'dart:convert';
-import 'package:cats/data/utils/constant_endpoints.dart';
-import 'package:http/http.dart' as http;
+import 'dart:io';
+
+import 'package:dio/dio.dart';
 import 'package:cats/data/utils/exceptions.dart';
+import 'package:cats/data/utils/constant_endpoints.dart';
 
 class HttpService {
-  final String baseUrl;
-  final Map<String, String> defaultHeaders;
+  final Dio _dio;
 
-  HttpService({
-    this.baseUrl = ConstantEndpoints.baseUrl,
-    this.defaultHeaders = const {"Content-Type": "application/json"},
-  });
+  HttpService({required String baseUrl})
+    : _dio = Dio(
+        BaseOptions(
+          baseUrl: baseUrl,
+          connectTimeout: const Duration(seconds: 20),
+          receiveTimeout: const Duration(seconds: 15),
+        ),
+      );
 
-  Future<dynamic> get(String path, {Map<String, String>? queryParams}) async {
+  Future<T> get<T>(
+    String path,
+    T Function(dynamic data) fromJson, {
+    Map<String, dynamic>? queryParameters,
+  }) async {
     try {
-      final uri = Uri.parse(
-        "$baseUrl$path",
-      ).replace(queryParameters: queryParams);
+      final response = await _dio.get(
+        path,
+        queryParameters: queryParameters,
+        options: Options(headers: await _getHeaders(endPoint: path)),
+      );
 
-      final response = await http.get(uri, headers: defaultHeaders);
-
-      return _handleResponse(response);
-    } catch (e) {
-      throw Exception(e);
+      return fromJson(_handleResponse(response));
+    } on DioException catch (e) {
+      throw ServerException(e.message ?? "Error desconocido");
     }
   }
 
-  dynamic _handleResponse(http.Response response) {
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      if (response.body.isEmpty) return null;
-      return jsonDecode(response.body); // Puede ser Map o List
+  dynamic _handleResponse(Response response) {
+    if (response.statusCode == 200) {
+      return response.data; // Puede ser List o Map
     } else {
-      throw ServerException(
-        "Error: ${response.statusCode} - ${response.reasonPhrase}",
+      throw ServerException("Error: ${response.statusCode}");
+    }
+  }
+
+  Future<Map<String, String>> _getHeaders({required String endPoint}) async {
+    final Map<String, String> listaCabeceras = <String, String>{};
+
+    listaCabeceras.putIfAbsent(
+      HttpHeaders.contentTypeHeader,
+      () => 'application/json',
+    );
+
+    listaCabeceras.putIfAbsent(
+      HttpHeaders.connectionHeader,
+      () => 'Keep-Alive',
+    );
+
+    if (!_validateBlackList(endPoint)) {
+      //final secureStorage = const FlutterSecureStorage();
+      //final String? token = await secureStorage.read(key: 'tokenSesion');
+
+      //if (token != null && token.isNotEmpty) {
+      //}
+      listaCabeceras.putIfAbsent(
+        'x-api-key',
+        () =>
+            'live_99Qe4Ppj34NdplyLW67xCV7Ds0oSLKGgcWWYnSzMJY9C0QOu0HUR4azYxWkyW2nr',
       );
     }
+
+    return listaCabeceras;
+  }
+
+  bool _validateBlackList(String endPoint) {
+    List<String> blackList = ConstantEndpoints.blackList;
+
+    for (String i in blackList) {
+      if (endPoint.contains(i)) {
+        return true;
+      }
+    }
+    return false;
   }
 }
